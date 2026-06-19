@@ -11,14 +11,14 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-p
 
 DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv(
-        "ALLOWED_HOSTS",
-        "localhost,127.0.0.1,student-pro-nzys.onrender.com",
-    ).split(",")
-    if host.strip()
-]
+
+def _env_list(name: str, default: str = "") -> list[str]:
+    """Parse comma-separated env values; strip whitespace; drop empty entries."""
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -86,13 +86,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
-
-def _env_list(name: str, default: str = "") -> list[str]:
-    """Parse comma-separated env values; strip whitespace; drop empty entries."""
-    raw = os.getenv(name, default)
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
 
 # Local dev defaults — production origins must be set via Render env vars.
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"

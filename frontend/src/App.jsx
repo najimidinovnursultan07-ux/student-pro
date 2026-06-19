@@ -5,8 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "./App.css";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/solve/";
+import { SOLVE_API_URL } from "./config/api";
 
 function Spinner() {
   return (
@@ -61,7 +60,7 @@ export default function App() {
     setAnswer("");
 
     try {
-      const { data } = await axios.post(API_URL, { task: trimmed });
+      const { data } = await axios.post(SOLVE_API_URL, { task: trimmed });
       setAnswer(data.answer || "");
     } catch (err) {
       const message =
