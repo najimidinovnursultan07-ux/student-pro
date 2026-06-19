@@ -3,3 +3,4 @@ packaging==26.2
 django
 python-dotenv
 django-cors-headers
+google-generativeai
