@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: student-pro
+    runtime: python
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "gunicorn config.wsgi:application"
+    rootDir: backend
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
