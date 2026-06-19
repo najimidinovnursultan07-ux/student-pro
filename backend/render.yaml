@@ -2,9 +2,7 @@ services:
   - type: web
     name: student-pro
     runtime: python
+    # Указываем правильный путь к требованиям
     buildCommand: "pip install -r backend/requirements.txt"
-    startCommand: "gunicorn config.wsgi:application"
-    rootDir: backend
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.14.3
+    # Запускаем через модуль, чтобы Python корректно видел проект
+    startCommand: "python -m gunicorn --chdir backend config.wsgi:application"
