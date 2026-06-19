@@ -16,34 +16,48 @@ SYSTEM_PROMPT = (
     "инлайн — $...$, блочные — $$...$$."
 )
 
-FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b")
+
+def _is_model_unavailable(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        ("404" in str(exc) and "model" in message)
+        or "not found" in message
+        or "not supported" in message
+        or "is not found for api version" in message
+    )
 
 
-def format_gemini_error(exc: Exception) -> str:
+def _is_quota_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "429" in str(exc) or "quota" in message or "resourceexhausted" in type(exc).__name__.lower()
+
+
+def format_gemini_error(exc: Exception, tried_models: list[str] | None = None) -> str:
     message = str(exc)
     lowered = message.lower()
 
-    if "429" in message or "quota" in lowered or "resourceexhausted" in type(exc).__name__.lower():
+    if _is_quota_error(exc):
         retry_match = re.search(r"retry in ([\d.]+)s", lowered)
         if retry_match:
             seconds = max(1, round(float(retry_match.group(1))))
             return (
                 f"Превышен лимит запросов к Gemini. Подождите ~{seconds} сек. и попробуйте снова. "
-                "Если ошибка повторяется, смените GEMINI_MODEL в backend/.env "
-                "(например: gemini-1.5-flash)."
+                f"Текущая модель: {settings.GEMINI_MODEL}."
             )
         return (
-            "Превышен лимит запросов к Gemini API. Подождите минуту и попробуйте снова, "
-            "либо укажите другую модель в GEMINI_MODEL (например: gemini-1.5-flash)."
+            "Превышен лимит запросов к Gemini API. Подождите минуту и попробуйте снова "
+            f"или смените GEMINI_MODEL на Render (сейчас: {settings.GEMINI_MODEL})."
         )
 
-    if "api key" in lowered or "api_key_invalid" in lowered:
-        return "Неверный или отсутствующий API-ключ Gemini. Проверьте GEMINI_API_KEY в backend/.env."
+    if "api key" in lowered or "api_key_invalid" in lowered or "permission denied" in lowered:
+        return "Неверный или отсутствующий API-ключ Gemini. Проверьте GEMINI_API_KEY на Render."
 
-    if "404" in message and "model" in lowered:
+    if _is_model_unavailable(exc):
+        models_info = ", ".join(tried_models) if tried_models else settings.GEMINI_MODEL
         return (
             f"Модель «{settings.GEMINI_MODEL}» недоступна. "
-            "Укажите другую в GEMINI_MODEL (например: gemini-2.5-flash или gemini-1.5-flash)."
+            f"Попробованы: {models_info}. "
+            "Укажите на Render GEMINI_MODEL=gemini-2.5-flash (или gemini-2.0-flash)."
         )
 
     if len(message) > 280:
@@ -53,32 +67,39 @@ def format_gemini_error(exc: Exception) -> str:
 
 
 def models_to_try() -> list[str]:
-    preferred = settings.GEMINI_MODEL.strip()
+    preferred = settings.GEMINI_MODEL
     ordered: list[str] = []
-    for model in [preferred, *FALLBACK_MODELS]:
+    for model in [preferred, *settings.GEMINI_FALLBACK_MODELS]:
         if model and model not in ordered:
             ordered.append(model)
     return ordered
 
 
+def get_gemini_client() -> None:
+    api_key = settings.GEMINI_API_KEY
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not configured")
+    genai.configure(api_key=api_key)
+
+
 def generate_answer(task: str) -> str:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+    get_gemini_client()
+    tried_models = models_to_try()
     last_error: Exception | None = None
 
-    for model_name in models_to_try():
+    for model_name in tried_models:
         try:
+            logger.info("Trying Gemini model: %s", model_name)
             model = genai.GenerativeModel(
                 model_name=model_name,
                 system_instruction=SYSTEM_PROMPT,
             )
             response = model.generate_content(task)
+            logger.info("Gemini model succeeded: %s", model_name)
             return response.text or ""
         except Exception as exc:
             last_error = exc
-            message = str(exc).lower()
-            is_quota = "429" in str(exc) or "quota" in message
-            is_model_missing = "404" in str(exc) and "model" in message
-            if is_quota or is_model_missing:
+            if _is_quota_error(exc) or _is_model_unavailable(exc):
                 logger.warning("Gemini model %s failed: %s", model_name, exc)
                 continue
             raise
@@ -102,7 +123,7 @@ def solve_task(request):
 
     if not settings.GEMINI_API_KEY:
         return JsonResponse(
-            {"error": "GEMINI_API_KEY не настроен на сервере."},
+            {"error": "GEMINI_API_KEY не настроен на сервере (Render → Environment)."},
             status=500,
         )
 
@@ -111,4 +132,7 @@ def solve_task(request):
         return JsonResponse({"answer": answer})
     except Exception as exc:
         logger.exception("Gemini API error")
-        return JsonResponse({"error": format_gemini_error(exc)}, status=500)
+        return JsonResponse(
+            {"error": format_gemini_error(exc, tried_models=models_to_try())},
+            status=500,
+        )

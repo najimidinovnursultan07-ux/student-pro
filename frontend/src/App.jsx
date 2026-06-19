@@ -63,10 +63,17 @@ export default function App() {
       const { data } = await axios.post(SOLVE_API_URL, { task: trimmed });
       setAnswer(data.answer || "");
     } catch (err) {
-      const message =
-        err.response?.data?.error ||
-        err.message ||
-        "Не удалось получить ответ от сервера.";
+      let message;
+      if (err.code === "ERR_NETWORK" || !err.response) {
+        message =
+          "Network Error: не удалось связаться с сервером. " +
+          `Проверьте VITE_API_URL (${SOLVE_API_URL}) и CORS на Render.`;
+      } else {
+        message =
+          err.response?.data?.error ||
+          err.message ||
+          "Не удалось получить ответ от сервера.";
+      }
       setError(message);
     } finally {
       setLoading(false);

@@ -84,8 +84,12 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_FALLBACK_MODELS = _env_list(
+    "GEMINI_FALLBACK_MODELS",
+    "gemini-2.5-flash,gemini-2.0-flash,gemini-1.5-flash-8b",
+)
 
 # Local dev defaults — production origins must be set via Render env vars.
 _DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
