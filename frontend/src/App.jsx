@@ -5,9 +5,14 @@ import ChatArea from "./components/ChatArea";
 import Sidebar from "./components/Sidebar";
 import { SOLVE_API_URL } from "./config/api";
 import {
+  appendMessagesToChat,
   createPendingChat,
+  deleteChatEntry,
+  finalizeAssistantMessage,
+  isChatLimitReached,
+  loadActiveChatId,
   loadHistory,
-  updateChatEntry,
+  saveActiveChatId,
 } from "./utils/historyStorage";
 
 function revokePreviewUrl(url) {
@@ -17,7 +22,7 @@ function revokePreviewUrl(url) {
 }
 
 export default function App() {
-  const [history, setHistory] = useState(() => loadHistory());
+  const [history, setHistory] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [task, setTask] = useState("");
   const [attachedImage, setAttachedImage] = useState(null);
@@ -26,6 +31,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isNewChat, setIsNewChat] = useState(true);
+  const [hydrated, setHydrated] = useState(false);
 
   const userName = useMemo(() => {
     try {
@@ -40,16 +46,41 @@ export default function App() {
     [history, activeId]
   );
 
-  const displayTask = activeEntry?.task ?? "";
-  const displayAnswer = activeEntry?.answer ?? "";
-  const displayImageUrl = activeEntry?.imageUrl ?? null;
-  const chatStatus = activeEntry?.status ?? null;
+  const messageLimitReached = useMemo(
+    () => Boolean(activeEntry && isChatLimitReached(activeEntry)),
+    [activeEntry]
+  );
+
+  const syncHistory = useCallback(() => {
+    setHistory(loadHistory());
+  }, []);
 
   useEffect(() => {
     WebApp.ready();
     WebApp.expand();
     document.documentElement.classList.add("dark");
+
+    const chats = loadHistory();
+    setHistory(chats);
+
+    const savedActiveId = loadActiveChatId();
+    const savedChat = chats.find((chat) => chat.id === savedActiveId);
+
+    if (savedChat) {
+      setActiveId(savedChat.id);
+      setIsNewChat(false);
+    } else {
+      setIsNewChat(true);
+      saveActiveChatId(null);
+    }
+
+    setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveActiveChatId(activeId);
+  }, [activeId, hydrated]);
 
   useEffect(() => {
     return () => revokePreviewUrl(imagePreview);
@@ -61,14 +92,19 @@ export default function App() {
     setImagePreview(null);
   }, [imagePreview]);
 
-  const handleNewChat = useCallback(() => {
+  const resetToNewChat = useCallback(() => {
     setActiveId(null);
     setTask("");
     clearAttachment();
     setError("");
     setIsNewChat(true);
-    setSidebarOpen(false);
+    saveActiveChatId(null);
   }, [clearAttachment]);
+
+  const handleNewChat = useCallback(() => {
+    resetToNewChat();
+    setSidebarOpen(false);
+  }, [resetToNewChat]);
 
   const handleSelectHistory = useCallback(
     (id) => {
@@ -77,9 +113,22 @@ export default function App() {
       clearAttachment();
       setError("");
       setIsNewChat(false);
+      saveActiveChatId(id);
       setSidebarOpen(false);
     },
     [clearAttachment]
+  );
+
+  const handleDeleteChat = useCallback(
+    (chatId) => {
+      const updated = deleteChatEntry(chatId);
+      setHistory(updated);
+
+      if (activeId === chatId) {
+        resetToNewChat();
+      }
+    },
+    [activeId, resetToNewChat]
   );
 
   const handleImageSelect = useCallback(
@@ -96,26 +145,56 @@ export default function App() {
     const trimmed = task.trim();
     if ((!trimmed && !attachedImage) || loading) return;
 
-    const chatId = crypto.randomUUID();
+    if (activeEntry && isChatLimitReached(activeEntry)) {
+      return;
+    }
+
     const localPreview = imagePreview;
-
-    const pendingEntry = createPendingChat({
-      id: chatId,
-      task: trimmed,
-      imageUrl: localPreview,
-    });
-
-    setHistory(loadHistory());
-    setActiveId(chatId);
-    setIsNewChat(false);
-    setLoading(true);
-    setError("");
-
     const submittedTask = trimmed;
     const submittedImage = attachedImage;
 
     setTask("");
     clearAttachment();
+    setError("");
+    setLoading(true);
+    setIsNewChat(false);
+
+    let chatId = activeId;
+
+    if (!chatId) {
+      chatId = crypto.randomUUID();
+      createPendingChat({
+        id: chatId,
+        task: submittedTask,
+        imageUrl: localPreview,
+      });
+    } else {
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        text: submittedTask,
+        imageUrl: localPreview,
+        createdAt: new Date().toISOString(),
+      };
+      const assistantPlaceholder = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: "",
+        createdAt: new Date().toISOString(),
+        status: "pending",
+      };
+
+      const updated = appendMessagesToChat(chatId, [userMessage, assistantPlaceholder]);
+      if (!updated) {
+        setLoading(false);
+        setError("Достигнут лимит в 100 сообщений. Пожалуйста, откройте «+ Новый чат».");
+        return;
+      }
+    }
+
+    syncHistory();
+    setActiveId(chatId);
+    saveActiveChatId(chatId);
 
     const formData = new FormData();
     formData.append("text", submittedTask);
@@ -129,14 +208,12 @@ export default function App() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const updated = updateChatEntry(chatId, {
+      finalizeAssistantMessage(chatId, {
         answer: data.answer || "",
         imageUrl: data.image_url || localPreview || null,
         status: "done",
       });
-
-      setHistory(loadHistory());
-      if (updated) setActiveId(updated.id);
+      syncHistory();
     } catch (err) {
       let message;
       if (err.code === "ERR_NETWORK" || !err.response) {
@@ -150,13 +227,21 @@ export default function App() {
           "Не удалось получить ответ от сервера.";
       }
 
-      updateChatEntry(chatId, { status: "error", answer: "" });
-      setHistory(loadHistory());
+      finalizeAssistantMessage(chatId, {
+        answer: "",
+        imageUrl: localPreview || null,
+        status: "error",
+      });
+      syncHistory();
       setError(message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (!hydrated) {
+    return <div className="flex h-screen items-center justify-center bg-[#131314] text-slate-500">Загрузка…</div>;
+  }
 
   return (
     <div className="flex h-full min-h-screen overflow-hidden bg-[#131314]">
@@ -165,16 +250,15 @@ export default function App() {
         activeId={activeId}
         onSelect={handleSelectHistory}
         onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
 
       <ChatArea
         userName={userName}
-        displayTask={displayTask}
-        displayAnswer={displayAnswer}
-        displayImageUrl={displayImageUrl}
-        chatStatus={chatStatus}
+        messages={activeEntry?.messages ?? []}
+        chatStatus={activeEntry?.status ?? null}
         task={task}
         onTaskChange={setTask}
         attachedImage={attachedImage}
@@ -185,6 +269,7 @@ export default function App() {
         loading={loading}
         error={error}
         isNewChat={isNewChat}
+        messageLimitReached={messageLimitReached}
         onOpenSidebar={() => setSidebarOpen(true)}
       />
     </div>

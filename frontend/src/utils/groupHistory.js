@@ -17,7 +17,7 @@ export function groupHistoryByDate(items) {
   };
 
   for (const item of items) {
-    const created = new Date(item.createdAt);
+    const created = new Date(item.updatedAt || item.createdAt);
     if (created >= todayStart) {
       groups.today.items.push(item);
     } else if (created >= yesterdayStart) {

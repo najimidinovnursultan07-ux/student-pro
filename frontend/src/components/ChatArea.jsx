@@ -11,12 +11,98 @@ function Spinner() {
   );
 }
 
+function UserMessage({ message, userLetter }) {
+  return (
+    <div className="flex gap-4">
+      <UserIcon className="h-9 w-9" letter={userLetter} />
+      <div className="min-w-0 flex-1 pt-1">
+        <p className="mb-1 text-xs font-medium text-slate-500">Вы</p>
+        {message.imageUrl && (
+          <img
+            src={message.imageUrl}
+            alt="Прикреплённое изображение"
+            className="mb-3 max-h-64 max-w-full rounded-xl border border-white/10 object-contain"
+          />
+        )}
+        {message.text && (
+          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-200">{message.text}</p>
+        )}
+        {!message.text && message.imageUrl && (
+          <p className="text-sm italic text-slate-500">Задача на изображении</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssistantMessage({ message, loading, error, isActive }) {
+  if (message.status === "pending" && loading && isActive) {
+    return (
+      <div className="flex gap-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20">
+          <SparkleIcon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+          <Spinner />
+        </div>
+      </div>
+    );
+  }
+
+  if (message.status === "error" && isActive && error) {
+    return (
+      <div className="flex gap-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20">
+          <SparkleIcon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+          <div
+            className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+            role="alert"
+          >
+            {error}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.status === "error" && !message.text) {
+    return (
+      <div className="flex gap-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20">
+          <SparkleIcon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            Не удалось получить ответ.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!message.text) return null;
+
+  return (
+    <div className="flex gap-4">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20">
+        <SparkleIcon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0 flex-1 pt-0.5">
+        <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+        <MarkdownRenderer>{message.text}</MarkdownRenderer>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatArea({
   userName,
-  displayTask,
-  displayAnswer,
-  displayImageUrl,
-  chatStatus,
+  messages,
   task,
   onTaskChange,
   attachedImage,
@@ -27,10 +113,11 @@ export default function ChatArea({
   loading,
   error,
   isNewChat,
+  messageLimitReached,
   onOpenSidebar,
 }) {
   const userLetter = (userName || "U").charAt(0).toUpperCase();
-  const hasConversation = Boolean(displayTask || displayImageUrl || loading);
+  const hasConversation = messages.length > 0 || loading;
   const showCenterComposer = isNewChat && !hasConversation && !loading;
 
   return (
@@ -71,65 +158,36 @@ export default function ChatArea({
               onImageRemove={onImageRemove}
               onSubmit={onSubmit}
               loading={loading}
+              inputDisabled={messageLimitReached}
               variant="center"
             />
           </div>
         ) : (
           <>
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <div className="mx-auto w-full max-w-3xl px-4 py-6 lg:px-8 lg:py-10">
-                {hasConversation && (
-                  <div className="space-y-8">
-                    <div className="flex gap-4">
-                      <UserIcon className="h-9 w-9" letter={userLetter} />
-                      <div className="min-w-0 flex-1 pt-1">
-                        <p className="mb-1 text-xs font-medium text-slate-500">Вы</p>
-                        {displayImageUrl && (
-                          <img
-                            src={displayImageUrl}
-                            alt="Прикреплённое изображение"
-                            className="mb-3 max-h-64 max-w-full rounded-xl border border-white/10 object-contain"
-                          />
-                        )}
-                        {displayTask && (
-                          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-200">
-                            {displayTask}
-                          </p>
-                        )}
-                        {!displayTask && displayImageUrl && (
-                          <p className="text-sm italic text-slate-500">Задача на изображении</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {(displayAnswer || loading || error || chatStatus === "pending") && (
-                      <div className="flex gap-4">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20">
-                          <SparkleIcon className="h-5 w-5" />
-                        </div>
-                        <div className="min-w-0 flex-1 pt-0.5">
-                          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
-                          {loading && <Spinner />}
-                          {error && !loading && (
-                            <div
-                              className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-                              role="alert"
-                            >
-                              {error}
-                            </div>
-                          )}
-                          {displayAnswer && !loading && !error && (
-                            <MarkdownRenderer>{displayAnswer}</MarkdownRenderer>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 lg:px-8 lg:py-10">
+                {messages.map((message, index) =>
+                  message.role === "user" ? (
+                    <UserMessage key={message.id} message={message} userLetter={userLetter} />
+                  ) : (
+                    <AssistantMessage
+                      key={message.id}
+                      message={message}
+                      loading={loading}
+                      error={error}
+                      isActive={index === messages.length - 1}
+                    />
+                  )
                 )}
               </div>
             </div>
 
             <div className="border-t border-white/[0.06] bg-[#131314]/80 p-4 backdrop-blur-xl lg:px-8">
+              {messageLimitReached && (
+                <p className="mx-auto mb-3 max-w-3xl rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-center text-sm text-amber-200">
+                  Достигнут лимит в 100 сообщений. Пожалуйста, откройте «+ Новый чат».
+                </p>
+              )}
               <Composer
                 task={task}
                 onTaskChange={onTaskChange}
@@ -139,6 +197,7 @@ export default function ChatArea({
                 onImageRemove={onImageRemove}
                 onSubmit={onSubmit}
                 loading={loading}
+                inputDisabled={messageLimitReached}
                 variant="bottom"
               />
             </div>

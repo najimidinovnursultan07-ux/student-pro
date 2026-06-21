@@ -10,11 +10,13 @@ export default function Composer({
   onImageRemove,
   onSubmit,
   loading,
+  inputDisabled = false,
   variant = "bottom",
 }) {
   const fileInputRef = useRef(null);
   const canSubmit = Boolean(task.trim() || attachedImage);
   const isCenter = variant === "center";
+  const disabled = loading || inputDisabled;
 
   const handleFileChange = (event) => {
     const file = event.target.files?.[0];
@@ -57,12 +59,12 @@ export default function Composer({
           onChange={(e) => onTaskChange(e.target.value)}
           placeholder="Введите условие задачи или прикрепите фото…"
           rows={isCenter ? 4 : 3}
-          disabled={loading}
-          className="w-full resize-none bg-transparent px-4 py-3.5 pl-12 pr-24 text-[15px] text-slate-200 placeholder:text-slate-500 focus:outline-none disabled:opacity-50"
+          disabled={disabled}
+          className="w-full resize-none bg-transparent px-4 py-3.5 pl-12 pr-24 text-[15px] text-slate-200 placeholder:text-slate-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (canSubmit && !loading) onSubmit(e);
+              if (canSubmit && !disabled) onSubmit(e);
             }
           }}
         />
@@ -78,8 +80,8 @@ export default function Composer({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={loading}
-          className="absolute bottom-3 left-3 rounded-lg p-2 text-slate-500 transition-all hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-40"
+          disabled={disabled}
+          className="absolute bottom-3 left-3 rounded-lg p-2 text-slate-500 transition-all hover:bg-white/[0.06] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Прикрепить изображение"
         >
           <AttachIcon className="h-5 w-5" />
@@ -87,7 +89,7 @@ export default function Composer({
 
         <button
           type="submit"
-          disabled={loading || !canSubmit}
+          disabled={disabled || !canSubmit}
           className="absolute bottom-3 right-3 rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95"
         >
           Решить

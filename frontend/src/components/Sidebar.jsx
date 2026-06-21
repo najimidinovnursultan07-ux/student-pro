@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import { groupHistoryByDate } from "../utils/groupHistory";
 import { ChatIcon, PlusIcon } from "./Icons";
 
@@ -6,6 +7,7 @@ export default function Sidebar({
   activeId,
   onSelect,
   onNewChat,
+  onDeleteChat,
   isOpen,
   onClose,
 }) {
@@ -61,29 +63,46 @@ export default function Sidebar({
                     const isActive = item.id === activeId;
                     return (
                       <li key={item.id}>
-                        <button
-                          type="button"
-                          onClick={() => onSelect(item.id)}
+                        <div
                           className={`
-                            group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm
-                            transition-all duration-200
+                            group relative flex w-full items-center rounded-xl transition-all duration-200
                             ${
                               isActive
-                                ? "bg-blue-500/15 text-white shadow-[inset_0_0_0_1px_rgba(96,165,250,0.2)]"
-                                : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
+                                ? "bg-blue-500/15 shadow-[inset_0_0_0_1px_rgba(96,165,250,0.2)]"
+                                : "hover:bg-white/[0.06]"
                             }
                           `}
                         >
-                          <ChatIcon
-                            className={`h-4 w-4 shrink-0 transition-colors ${
-                              isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-400"
+                          <button
+                            type="button"
+                            onClick={() => onSelect(item.id)}
+                            className={`flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left text-sm ${
+                              isActive ? "text-white" : "text-slate-400 group-hover:text-slate-200"
                             }`}
-                          />
-                          <span className="min-w-0 flex-1 truncate">{item.title || item.task}</span>
-                          {item.status === "pending" && (
-                            <span className="ml-auto h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-400" />
-                          )}
-                        </button>
+                          >
+                            <ChatIcon
+                              className={`h-4 w-4 shrink-0 transition-colors ${
+                                isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-400"
+                              }`}
+                            />
+                            <span className="min-w-0 flex-1 truncate pr-6">{item.title}</span>
+                            {item.status === "pending" && (
+                              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-400" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            aria-label="Удалить чат"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteChat(item.id);
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 opacity-0 transition-all hover:bg-red-500/15 hover:text-red-400 group-hover:opacity-100"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </li>
                     );
                   })}
