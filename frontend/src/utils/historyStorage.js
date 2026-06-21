@@ -1,7 +1,19 @@
-export const STORAGE_KEY = "ai_student_chats";
 const LEGACY_STORAGE_KEY = "ai-student-pro-history";
-export const ACTIVE_CHAT_KEY = "ai_student_active_chat";
 export const MAX_MESSAGES_PER_CHAT = 100;
+
+let currentUserId = "guest";
+
+export function setHistoryUser(userId) {
+  currentUserId = userId ? String(userId) : "guest";
+}
+
+function storageKey() {
+  return `ai_student_chats_${currentUserId}`;
+}
+
+function activeChatKey() {
+  return `ai_student_active_chat_${currentUserId}`;
+}
 
 export function chatTitle(text, maxWords = 4) {
   const words = (text || "").trim().split(/\s+/).filter(Boolean);
@@ -78,7 +90,11 @@ function normalizeChat(chat) {
 }
 
 function readRawStorage() {
-  const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+  const key = storageKey();
+  const raw =
+    localStorage.getItem(key) ??
+    (currentUserId !== "guest" ? null : localStorage.getItem("ai_student_chats")) ??
+    localStorage.getItem(LEGACY_STORAGE_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -97,22 +113,22 @@ export function loadHistory() {
 }
 
 export function saveHistory(items) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  if (localStorage.getItem(LEGACY_STORAGE_KEY)) {
+  localStorage.setItem(storageKey(), JSON.stringify(items));
+  if (currentUserId === "guest" && localStorage.getItem(LEGACY_STORAGE_KEY)) {
     localStorage.removeItem(LEGACY_STORAGE_KEY);
   }
 }
 
 export function saveActiveChatId(chatId) {
   if (chatId) {
-    localStorage.setItem(ACTIVE_CHAT_KEY, chatId);
+    localStorage.setItem(activeChatKey(), chatId);
   } else {
-    localStorage.removeItem(ACTIVE_CHAT_KEY);
+    localStorage.removeItem(activeChatKey());
   }
 }
 
 export function loadActiveChatId() {
-  return localStorage.getItem(ACTIVE_CHAT_KEY);
+  return localStorage.getItem(activeChatKey());
 }
 
 export function countMessages(chat) {

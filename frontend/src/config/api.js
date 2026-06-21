@@ -1,11 +1,14 @@
-const LOCAL_API_URL = "http://127.0.0.1:8000/api/solve/";
+const LOCAL_API_BASE = "http://127.0.0.1:8000/api";
 
-const configuredUrl = import.meta.env.VITE_API_URL?.trim();
+const configuredBase = import.meta.env.VITE_API_BASE?.trim();
+const configuredSolve = import.meta.env.VITE_API_URL?.trim();
 
-if (import.meta.env.PROD && !configuredUrl) {
+export const API_BASE = configuredBase || (configuredSolve ? configuredSolve.replace(/\/solve\/?$/, "") : LOCAL_API_BASE);
+
+export const SOLVE_API_URL = configuredSolve || `${API_BASE}/solve/`;
+
+if (import.meta.env.PROD && !configuredBase && !configuredSolve) {
   console.error(
-    "VITE_API_URL is missing. Set it in Vercel → Settings → Environment Variables and redeploy."
+    "VITE_API_BASE or VITE_API_URL is missing. Set in Vercel Environment Variables and redeploy."
   );
 }
-
-export const SOLVE_API_URL = configuredUrl || LOCAL_API_URL;

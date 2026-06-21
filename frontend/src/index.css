@@ -48,12 +48,12 @@ body {
   background: rgba(255, 255, 255, 0.22);
 }
 
-.markdown-gemini .katex-display {
+.markdown-content .katex-display {
   overflow-x: auto;
   padding: 0.5rem 0;
 }
 
-.markdown-gemini .katex {
+.markdown-content .katex {
   font-size: 1.05em;
 }
 

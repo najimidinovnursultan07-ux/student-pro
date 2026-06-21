@@ -1,6 +1,13 @@
-import { Trash2 } from "lucide-react";
+import { BookOpen, GraduationCap, LogOut, Trash2, Zap } from "lucide-react";
+import { STUDENT_SECTIONS } from "../constants/studentSections";
 import { groupHistoryByDate } from "../utils/groupHistory";
 import { ChatIcon, PlusIcon } from "./Icons";
+
+const SECTION_ICONS = {
+  GraduationCap,
+  BookOpen,
+  Zap,
+};
 
 export default function Sidebar({
   history,
@@ -8,6 +15,9 @@ export default function Sidebar({
   onSelect,
   onNewChat,
   onDeleteChat,
+  onStudentSection,
+  onLogout,
+  username,
   isOpen,
   onClose,
 }) {
@@ -45,6 +55,29 @@ export default function Sidebar({
             <PlusIcon className="h-4 w-4 text-blue-400" />
             Новый чат
           </button>
+
+          <div className="mt-4">
+            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Помощник студента
+            </p>
+            <ul className="space-y-0.5">
+              {STUDENT_SECTIONS.map((section) => {
+                const Icon = SECTION_ICONS[section.icon];
+                return (
+                  <li key={section.id}>
+                    <button
+                      type="button"
+                      onClick={() => onStudentSection(section.prompt)}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-slate-400 transition-all hover:bg-white/[0.06] hover:text-slate-200"
+                    >
+                      <Icon className="h-4 w-4 shrink-0 text-blue-400/80" />
+                      <span className="min-w-0 flex-1 truncate">{section.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar px-2 py-3">
@@ -113,7 +146,20 @@ export default function Sidebar({
         </div>
 
         <div className="border-t border-white/[0.06] px-4 py-3">
-          <p className="text-xs font-medium text-slate-500">AI Student PRO</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-slate-300">{username}</p>
+              <p className="text-[10px] text-slate-600">AI Student PRO</p>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-red-400"
+              aria-label="Выйти"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </aside>
     </>

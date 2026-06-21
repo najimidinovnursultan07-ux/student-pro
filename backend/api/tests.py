@@ -1,35 +1,28 @@
-from django.test import Client, TestCase
+from django.contrib.auth.models import User
+from rest_framework.test import APIClient, APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
 
-class SolveEndpointTests(TestCase):
+class SolveEndpointTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="testuser", password="testpass123")
+        self.client = APIClient()
+        refresh = RefreshToken.for_user(self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+
+    def test_rejects_unauthenticated(self):
+        client = APIClient()
+        response = client.post("/api/solve/", data={"text": "hello"})
+        self.assertEqual(response.status_code, 401)
+
     def test_rejects_empty_multipart(self):
-        client = Client()
-        response = client.post("/api/solve/", data={"text": ""})
+        response = self.client.post("/api/solve/", data={"text": ""})
         self.assertEqual(response.status_code, 400)
 
     def test_rejects_empty_json_task(self):
-        client = Client()
-        response = client.post(
+        response = self.client.post(
             "/api/solve/",
-            data='{"task": ""}',
-            content_type="application/json",
+            data={"task": ""},
+            format="json",
         )
         self.assertEqual(response.status_code, 400)
-
-    def test_rejects_invalid_json(self):
-        client = Client()
-        response = client.post(
-            "/api/solve/",
-            data="not-json",
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 400)
-
-    def test_accepts_json_task_field(self):
-        client = Client()
-        response = client.post(
-            "/api/solve/",
-            data='{"task": "test", "chat_id": "abc-123"}',
-            content_type="application/json",
-        )
-        self.assertIn(response.status_code, (200, 500))

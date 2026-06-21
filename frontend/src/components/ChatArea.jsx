@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import Composer from "./Composer";
 import { MenuIcon, SparkleIcon, UserIcon } from "./Icons";
@@ -43,7 +44,7 @@ function AssistantMessage({ message, loading, error, isActive }) {
           <SparkleIcon className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+          <p className="mb-2 text-xs font-medium text-slate-500">AI Student PRO</p>
           <Spinner />
         </div>
       </div>
@@ -57,7 +58,7 @@ function AssistantMessage({ message, loading, error, isActive }) {
           <SparkleIcon className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+          <p className="mb-2 text-xs font-medium text-slate-500">AI Student PRO</p>
           <div
             className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
             role="alert"
@@ -76,7 +77,7 @@ function AssistantMessage({ message, loading, error, isActive }) {
           <SparkleIcon className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+          <p className="mb-2 text-xs font-medium text-slate-500">AI Student PRO</p>
           <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             Не удалось получить ответ.
           </div>
@@ -93,7 +94,7 @@ function AssistantMessage({ message, loading, error, isActive }) {
         <SparkleIcon className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <p className="mb-2 text-xs font-medium text-slate-500">Gemini</p>
+        <p className="mb-2 text-xs font-medium text-slate-500">AI Student PRO</p>
         <MarkdownRenderer>{message.text}</MarkdownRenderer>
       </div>
     </div>
@@ -116,9 +117,14 @@ export default function ChatArea({
   messageLimitReached,
   onOpenSidebar,
 }) {
+  const messagesEndRef = useRef(null);
   const userLetter = (userName || "U").charAt(0).toUpperCase();
   const hasConversation = messages.length > 0 || loading;
   const showCenterComposer = isNewChat && !hasConversation && !loading;
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-[#131314]">
@@ -133,7 +139,7 @@ export default function ChatArea({
         </button>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-base font-medium text-slate-100">AI Student PRO</h1>
-          <p className="truncate text-xs text-slate-500">Решение учебных задач с Gemini</p>
+          <p className="truncate text-xs text-slate-500">Интеллектуальное решение учебных задач</p>
         </div>
       </header>
 
@@ -179,6 +185,7 @@ export default function ChatArea({
                     />
                   )
                 )}
+                <div ref={messagesEndRef} />
               </div>
             </div>
 

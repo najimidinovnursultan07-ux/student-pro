@@ -4,7 +4,7 @@ import rehypeKatex from "rehype-katex";
 
 export default function MarkdownRenderer({ children }) {
   return (
-    <div className="markdown-gemini prose-gemini text-[15px] leading-relaxed text-slate-200">
+    <div className="markdown-content text-[15px] leading-relaxed text-slate-200">
       <ReactMarkdown
         remarkPlugins={[remarkMath]}
         rehypePlugins={[rehypeKatex]}

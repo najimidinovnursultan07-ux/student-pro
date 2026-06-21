@@ -50,14 +50,14 @@ export function SparkleIcon({ className = "w-5 h-5" }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none">
       <defs>
-        <linearGradient id="gemini-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="brand-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#4285f4" />
           <stop offset="50%" stopColor="#9b72cb" />
           <stop offset="100%" stopColor="#d96570" />
         </linearGradient>
       </defs>
       <path
-        fill="url(#gemini-gradient)"
+        fill="url(#brand-gradient)"
         d="M12 2l1.8 5.5L19 9l-5.2 1.5L12 16l-1.8-5.5L5 9l5.2-1.5L12 2zm6 10l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3zm-12 2l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z"
       />
     </svg>

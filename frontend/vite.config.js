@@ -13,7 +13,7 @@ export default defineConfig({
       manifest: {
         name: "AI Student PRO",
         short_name: "StudentPRO",
-        description: "Решение учебных задач с помощью Gemini AI",
+        description: "Интеллектуальное решение учебных задач — AI Student PRO",
         theme_color: "#2481cc",
         background_color: "#ffffff",
         display: "standalone",
