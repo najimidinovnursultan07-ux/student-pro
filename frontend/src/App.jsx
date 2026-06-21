@@ -1,67 +1,85 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import WebApp from "@twa-dev/sdk";
 import axios from "axios";
-import ReactMarkdown from "react-markdown";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "./App.css";
+import ChatArea from "./components/ChatArea";
+import Sidebar from "./components/Sidebar";
 import { SOLVE_API_URL } from "./config/api";
-
-function Spinner() {
-  return (
-    <div className="spinner-wrap" role="status" aria-label="Загрузка">
-      <div className="spinner" />
-      <p>Решаю задачу…</p>
-    </div>
-  );
-}
+import { addHistoryEntry, loadHistory } from "./utils/historyStorage";
 
 export default function App() {
+  const [history, setHistory] = useState(() => loadHistory());
+  const [activeId, setActiveId] = useState(null);
   const [task, setTask] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [liveTask, setLiveTask] = useState("");
+  const [liveAnswer, setLiveAnswer] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isNewChat, setIsNewChat] = useState(true);
+
+  const userName = useMemo(() => {
+    try {
+      return WebApp.initDataUnsafe?.user?.first_name || "Вы";
+    } catch {
+      return "Вы";
+    }
+  }, []);
+
+  const activeEntry = useMemo(
+    () => history.find((item) => item.id === activeId) ?? null,
+    [history, activeId]
+  );
+
+  const displayTask = activeEntry?.task ?? liveTask;
+  const displayAnswer = activeEntry?.answer ?? liveAnswer;
 
   useEffect(() => {
     WebApp.ready();
     WebApp.expand();
-    document.documentElement.style.setProperty(
-      "--tg-theme-bg-color",
-      WebApp.themeParams.bg_color || "#ffffff"
-    );
-    document.documentElement.style.setProperty(
-      "--tg-theme-text-color",
-      WebApp.themeParams.text_color || "#000000"
-    );
-    document.documentElement.style.setProperty(
-      "--tg-theme-button-color",
-      WebApp.themeParams.button_color || "#2481cc"
-    );
-    document.documentElement.style.setProperty(
-      "--tg-theme-button-text-color",
-      WebApp.themeParams.button_text_color || "#ffffff"
-    );
-    document.documentElement.style.setProperty(
-      "--tg-theme-hint-color",
-      WebApp.themeParams.hint_color || "#999999"
-    );
+    document.documentElement.classList.add("dark");
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    setActiveId(null);
+    setTask("");
+    setLiveTask("");
+    setLiveAnswer("");
+    setError("");
+    setIsNewChat(true);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleSelectHistory = useCallback((id) => {
+    setActiveId(id);
+    setLiveTask("");
+    setLiveAnswer("");
+    setError("");
+    setTask("");
+    setIsNewChat(false);
+    setSidebarOpen(false);
   }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const trimmed = task.trim();
-    if (!trimmed) {
-      setError("Введите текст задачи.");
-      return;
-    }
+    if (!trimmed || loading) return;
 
     setLoading(true);
     setError("");
-    setAnswer("");
+    setLiveTask(trimmed);
+    setLiveAnswer("");
+    setActiveId(null);
+    setIsNewChat(false);
 
     try {
       const { data } = await axios.post(SOLVE_API_URL, { task: trimmed });
-      setAnswer(data.answer || "");
+      const answer = data.answer || "";
+      setLiveAnswer(answer);
+
+      const entry = addHistoryEntry(trimmed, answer);
+      setHistory(loadHistory());
+      setActiveId(entry.id);
+      setTask("");
     } catch (err) {
       let message;
       if (err.code === "ERR_NETWORK" || !err.response) {
@@ -81,45 +99,28 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>AI Student PRO</h1>
-        <p className="subtitle">Решение учебных задач с Gemini</p>
-      </header>
+    <div className="flex h-full min-h-screen overflow-hidden bg-[#131314]">
+      <Sidebar
+        history={history}
+        activeId={activeId}
+        onSelect={handleSelectHistory}
+        onNewChat={handleNewChat}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      <form className="form" onSubmit={handleSubmit}>
-        <label htmlFor="task">Задача</label>
-        <textarea
-          id="task"
-          value={task}
-          onChange={(e) => setTask(e.target.value)}
-          placeholder="Введите условие задачи…"
-          rows={6}
-          disabled={loading}
-        />
-        <button type="submit" disabled={loading || !task.trim()}>
-          Решить
-        </button>
-      </form>
-
-      {loading && <Spinner />}
-
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
-
-      {answer && !loading && (
-        <section className="answer">
-          <h2>Решение</h2>
-          <div className="markdown">
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {answer}
-            </ReactMarkdown>
-          </div>
-        </section>
-      )}
+      <ChatArea
+        userName={userName}
+        displayTask={displayTask}
+        displayAnswer={displayAnswer}
+        task={task}
+        onTaskChange={setTask}
+        onSubmit={handleSubmit}
+        loading={loading}
+        error={error}
+        isNewChat={isNewChat}
+        onOpenSidebar={() => setSidebarOpen(true)}
+      />
     </div>
   );
 }
