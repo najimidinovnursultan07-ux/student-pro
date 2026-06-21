@@ -24,7 +24,7 @@ export default function Sidebar({
 
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col
+          fixed inset-y-0 left-0 z-50 flex w-[min(300px,85vw)] min-w-[250px] flex-col
           border-r border-white/[0.06] bg-[#1e1e24]/95 backdrop-blur-xl
           transition-transform duration-300 ease-out
           lg:static lg:z-auto lg:translate-x-0
@@ -32,6 +32,9 @@ export default function Sidebar({
         `}
       >
         <div className="border-b border-white/[0.06] p-3">
+          <p className="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            История
+          </p>
           <button
             type="button"
             onClick={onNewChat}

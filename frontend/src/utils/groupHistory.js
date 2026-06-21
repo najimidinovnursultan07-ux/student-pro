@@ -9,14 +9,11 @@ export function groupHistoryByDate(items) {
   const todayStart = startOfDay(now);
   const yesterdayStart = new Date(todayStart);
   yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - 7);
 
   const groups = {
     today: { label: "Сегодня", items: [] },
     yesterday: { label: "Вчера", items: [] },
     previousWeek: { label: "Предыдущие 7 дней", items: [] },
-    older: { label: "Ранее", items: [] },
   };
 
   for (const item of items) {
@@ -25,10 +22,8 @@ export function groupHistoryByDate(items) {
       groups.today.items.push(item);
     } else if (created >= yesterdayStart) {
       groups.yesterday.items.push(item);
-    } else if (created >= weekStart) {
-      groups.previousWeek.items.push(item);
     } else {
-      groups.older.items.push(item);
+      groups.previousWeek.items.push(item);
     }
   }
 
