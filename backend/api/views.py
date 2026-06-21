@@ -1,20 +1,28 @@
 import json
 import logging
 import re
+import uuid
+from pathlib import Path
 
 import google.generativeai as genai
 from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from PIL import Image, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "Ты — опытный репетитор. Решай учебные задачи пошагово, понятно и на русском языке. "
     "Используй Markdown для структуры ответа. Для математических формул используй LaTeX: "
-    "инлайн — $...$, блочные — $$...$$."
+    "инлайн — $...$, блочные — $$...$$. "
+    "Если пользователь прикрепил изображение, внимательно проанализируй его и реши задачу с картинки."
 )
+
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+IMAGE_ONLY_PROMPT = "Реши учебную задачу с прикреплённого изображения пошагово и понятно на русском языке."
 
 
 def _is_model_unavailable(exc: Exception) -> bool:
@@ -66,10 +74,19 @@ def format_gemini_error(exc: Exception, tried_models: list[str] | None = None) -
     return message
 
 
-def models_to_try() -> list[str]:
+def models_to_try(has_image: bool) -> list[str]:
     preferred = settings.GEMINI_MODEL
-    ordered: list[str] = []
-    for model in [preferred, *settings.GEMINI_FALLBACK_MODELS]:
+    fallbacks = settings.GEMINI_FALLBACK_MODELS
+    if has_image:
+        vision_first = [preferred, *fallbacks]
+        ordered: list[str] = []
+        for model in vision_first:
+            if model and model not in ordered:
+                ordered.append(model)
+        return ordered
+
+    ordered = []
+    for model in [preferred, *fallbacks]:
         if model and model not in ordered:
             ordered.append(model)
     return ordered
@@ -82,19 +99,57 @@ def get_gemini_client() -> None:
     genai.configure(api_key=api_key)
 
 
-def generate_answer(task: str) -> str:
+def save_uploaded_image(uploaded_file: UploadedFile) -> str:
+    ext = Path(uploaded_file.name).suffix.lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        ext = ".jpg"
+
+    upload_dir = Path(settings.MEDIA_ROOT) / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{uuid.uuid4()}{ext}"
+    destination = upload_dir / filename
+
+    with destination.open("wb+") as dest:
+        for chunk in uploaded_file.chunks():
+            dest.write(chunk)
+
+    return f"{settings.MEDIA_URL}uploads/{filename}"
+
+
+def load_image_from_upload(uploaded_file: UploadedFile) -> Image.Image:
+    uploaded_file.seek(0)
+    try:
+        image = Image.open(uploaded_file)
+        image.load()
+        return image.convert("RGB")
+    except UnidentifiedImageError as exc:
+        raise ValueError("Не удалось распознать изображение. Загрузите JPG, PNG, GIF или WebP.") from exc
+    finally:
+        uploaded_file.seek(0)
+
+
+def generate_answer(task: str, image: Image.Image | None = None) -> str:
     get_gemini_client()
-    tried_models = models_to_try()
+    tried_models = models_to_try(has_image=image is not None)
     last_error: Exception | None = None
+
+    content_parts: list = []
+    if task:
+        content_parts.append(task)
+    elif image is not None:
+        content_parts.append(IMAGE_ONLY_PROMPT)
+    if image is not None:
+        content_parts.append(image)
 
     for model_name in tried_models:
         try:
-            logger.info("Trying Gemini model: %s", model_name)
+            logger.info("Trying Gemini model: %s (image=%s)", model_name, image is not None)
             model = genai.GenerativeModel(
                 model_name=model_name,
                 system_instruction=SYSTEM_PROMPT,
             )
-            response = model.generate_content(task)
+            response = model.generate_content(content_parts)
             logger.info("Gemini model succeeded: %s", model_name)
             return response.text or ""
         except Exception as exc:
@@ -109,17 +164,38 @@ def generate_answer(task: str) -> str:
     raise RuntimeError("Не удалось получить ответ от Gemini.")
 
 
+def parse_request_payload(request) -> tuple[str, UploadedFile | None, str]:
+    content_type = request.content_type or ""
+
+    if content_type.startswith("multipart/form-data"):
+        text = (request.POST.get("text") or "").strip()
+        chat_id = (request.POST.get("chat_id") or "").strip()
+        image = request.FILES.get("image")
+        return text, image, chat_id
+
+    try:
+        body = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("Некорректный JSON.") from exc
+
+    text = (body.get("text") or body.get("task") or "").strip()
+    chat_id = (body.get("chat_id") or "").strip()
+    return text, None, chat_id
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def solve_task(request):
     try:
-        body = json.loads(request.body.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse({"error": "Некорректный JSON."}, status=400)
+        text, uploaded_image, chat_id = parse_request_payload(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
 
-    task = body.get("task", "").strip()
-    if not task:
-        return JsonResponse({"error": "Поле 'task' обязательно и не может быть пустым."}, status=400)
+    if not text and not uploaded_image:
+        return JsonResponse(
+            {"error": "Укажите текст задачи или прикрепите изображение."},
+            status=400,
+        )
 
     if not settings.GEMINI_API_KEY:
         return JsonResponse(
@@ -127,12 +203,31 @@ def solve_task(request):
             status=500,
         )
 
+    image_url = None
+    pil_image = None
+
     try:
-        answer = generate_answer(task)
-        return JsonResponse({"answer": answer})
+        if uploaded_image:
+            pil_image = load_image_from_upload(uploaded_image)
+            image_url = save_uploaded_image(uploaded_image)
+            if image_url and not image_url.startswith("http"):
+                image_url = request.build_absolute_uri(image_url)
+
+        answer = generate_answer(text, pil_image)
+        response_chat_id = chat_id or str(uuid.uuid4())
+
+        return JsonResponse(
+            {
+                "chat_id": response_chat_id,
+                "answer": answer,
+                "image_url": image_url,
+            }
+        )
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
     except Exception as exc:
         logger.exception("Gemini API error")
         return JsonResponse(
-            {"error": format_gemini_error(exc, tried_models=models_to_try())},
+            {"error": format_gemini_error(exc, tried_models=models_to_try(pil_image is not None))},
             status=500,
         )

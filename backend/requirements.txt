@@ -4,3 +4,4 @@ django
 python-dotenv
 django-cors-headers
 google-generativeai
+Pillow>=10.0,<12.0

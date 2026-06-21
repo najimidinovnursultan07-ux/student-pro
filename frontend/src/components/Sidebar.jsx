@@ -79,7 +79,10 @@ export default function Sidebar({
                               isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-400"
                             }`}
                           />
-                          <span className="truncate">{item.task}</span>
+                          <span className="min-w-0 flex-1 truncate">{item.title || item.task}</span>
+                          {item.status === "pending" && (
+                            <span className="ml-auto h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-400" />
+                          )}
                         </button>
                       </li>
                     );

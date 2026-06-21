@@ -4,14 +4,24 @@ import axios from "axios";
 import ChatArea from "./components/ChatArea";
 import Sidebar from "./components/Sidebar";
 import { SOLVE_API_URL } from "./config/api";
-import { addHistoryEntry, loadHistory } from "./utils/historyStorage";
+import {
+  createPendingChat,
+  loadHistory,
+  updateChatEntry,
+} from "./utils/historyStorage";
+
+function revokePreviewUrl(url) {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export default function App() {
   const [history, setHistory] = useState(() => loadHistory());
   const [activeId, setActiveId] = useState(null);
   const [task, setTask] = useState("");
-  const [liveTask, setLiveTask] = useState("");
-  const [liveAnswer, setLiveAnswer] = useState("");
+  const [attachedImage, setAttachedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -30,8 +40,10 @@ export default function App() {
     [history, activeId]
   );
 
-  const displayTask = activeEntry?.task ?? liveTask;
-  const displayAnswer = activeEntry?.answer ?? liveAnswer;
+  const displayTask = activeEntry?.task ?? "";
+  const displayAnswer = activeEntry?.answer ?? "";
+  const displayImageUrl = activeEntry?.imageUrl ?? null;
+  const chatStatus = activeEntry?.status ?? null;
 
   useEffect(() => {
     WebApp.ready();
@@ -39,47 +51,92 @@ export default function App() {
     document.documentElement.classList.add("dark");
   }, []);
 
+  useEffect(() => {
+    return () => revokePreviewUrl(imagePreview);
+  }, [imagePreview]);
+
+  const clearAttachment = useCallback(() => {
+    revokePreviewUrl(imagePreview);
+    setAttachedImage(null);
+    setImagePreview(null);
+  }, [imagePreview]);
+
   const handleNewChat = useCallback(() => {
     setActiveId(null);
     setTask("");
-    setLiveTask("");
-    setLiveAnswer("");
+    clearAttachment();
     setError("");
     setIsNewChat(true);
     setSidebarOpen(false);
-  }, []);
+  }, [clearAttachment]);
 
-  const handleSelectHistory = useCallback((id) => {
-    setActiveId(id);
-    setLiveTask("");
-    setLiveAnswer("");
-    setError("");
-    setTask("");
-    setIsNewChat(false);
-    setSidebarOpen(false);
-  }, []);
+  const handleSelectHistory = useCallback(
+    (id) => {
+      setActiveId(id);
+      setTask("");
+      clearAttachment();
+      setError("");
+      setIsNewChat(false);
+      setSidebarOpen(false);
+    },
+    [clearAttachment]
+  );
+
+  const handleImageSelect = useCallback(
+    (file) => {
+      revokePreviewUrl(imagePreview);
+      setAttachedImage(file);
+      setImagePreview(URL.createObjectURL(file));
+    },
+    [imagePreview]
+  );
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     const trimmed = task.trim();
-    if (!trimmed || loading) return;
+    if ((!trimmed && !attachedImage) || loading) return;
 
+    const chatId = crypto.randomUUID();
+    const localPreview = imagePreview;
+
+    const pendingEntry = createPendingChat({
+      id: chatId,
+      task: trimmed,
+      imageUrl: localPreview,
+    });
+
+    setHistory(loadHistory());
+    setActiveId(chatId);
+    setIsNewChat(false);
     setLoading(true);
     setError("");
-    setLiveTask(trimmed);
-    setLiveAnswer("");
-    setActiveId(null);
-    setIsNewChat(false);
+
+    const submittedTask = trimmed;
+    const submittedImage = attachedImage;
+
+    setTask("");
+    clearAttachment();
+
+    const formData = new FormData();
+    formData.append("text", submittedTask);
+    formData.append("chat_id", chatId);
+    if (submittedImage) {
+      formData.append("image", submittedImage);
+    }
 
     try {
-      const { data } = await axios.post(SOLVE_API_URL, { task: trimmed });
-      const answer = data.answer || "";
-      setLiveAnswer(answer);
+      const { data } = await axios.post(SOLVE_API_URL, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-      const entry = addHistoryEntry(trimmed, answer);
+      const updated = updateChatEntry(chatId, {
+        answer: data.answer || "",
+        imageUrl: data.image_url || localPreview || null,
+        status: "done",
+      });
+
       setHistory(loadHistory());
-      setActiveId(entry.id);
-      setTask("");
+      if (updated) setActiveId(updated.id);
     } catch (err) {
       let message;
       if (err.code === "ERR_NETWORK" || !err.response) {
@@ -92,6 +149,9 @@ export default function App() {
           err.message ||
           "Не удалось получить ответ от сервера.";
       }
+
+      updateChatEntry(chatId, { status: "error", answer: "" });
+      setHistory(loadHistory());
       setError(message);
     } finally {
       setLoading(false);
@@ -113,8 +173,14 @@ export default function App() {
         userName={userName}
         displayTask={displayTask}
         displayAnswer={displayAnswer}
+        displayImageUrl={displayImageUrl}
+        chatStatus={chatStatus}
         task={task}
         onTaskChange={setTask}
+        attachedImage={attachedImage}
+        imagePreview={imagePreview}
+        onImageSelect={handleImageSelect}
+        onImageRemove={clearAttachment}
         onSubmit={handleSubmit}
         loading={loading}
         error={error}
