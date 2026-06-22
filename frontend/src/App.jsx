@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { telegramAuthRequest, parseApiError } from "./api/client";
-import { saveAuth, clearAuth } from "./utils/authStorage";
+import { telegramAuthRequest } from "./api/client";
+import { clearAuth, getAuth, saveAuth } from "./utils/authStorage";
 import {
   getTelegramUserFromWindow,
   getTelegramUserWithRetry,
@@ -10,10 +10,20 @@ import {
 import ChatApp from "./components/ChatApp";
 import TelegramGate from "./components/TelegramGate";
 
+function mapTelegramUser(tgUser) {
+  return {
+    id: tgUser.id,
+    username: tgUser.username || `tg_${tgUser.id}`,
+    first_name: tgUser.first_name || "",
+    telegram_id: tgUser.id,
+  };
+}
+
 export default function App() {
-  const [auth, setAuth] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [gateMessage, setGateMessage] = useState("");
+  const initialTgUser = getTelegramUserFromWindow();
+  const [tgUser, setTgUser] = useState(initialTgUser);
+  const [user, setUser] = useState(() => getAuth()?.user ?? (initialTgUser ? mapTelegramUser(initialTgUser) : null));
+  const [scanDone, setScanDone] = useState(Boolean(initialTgUser?.id));
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
@@ -21,55 +31,38 @@ export default function App() {
     let cancelled = false;
 
     async function bootstrap() {
+      const webApp = await waitForTelegramWebApp();
+      initTelegramWebApp(webApp);
+
+      const resolved = webApp ? await getTelegramUserWithRetry(webApp) : null;
+      if (cancelled) return;
+
+      setTgUser(resolved);
+      setScanDone(true);
+
+      if (!resolved?.id) return;
+
+      setUser(mapTelegramUser(resolved));
+
       try {
-        const webApp = await waitForTelegramWebApp();
-        initTelegramWebApp(webApp);
-
-        const tgUser = webApp ? await getTelegramUserWithRetry(webApp) : null;
-
-        if (!tgUser?.id) {
-          if (!cancelled) {
-            setGateMessage("");
-            setLoading(false);
-          }
-          return;
-        }
-
         const data = await telegramAuthRequest({
-          id: tgUser.id,
-          username: tgUser.username || "",
-          first_name: tgUser.first_name || "",
-          last_name: tgUser.last_name || "",
+          id: resolved.id,
+          username: resolved.username || "",
+          first_name: resolved.first_name || "",
+          last_name: resolved.last_name || "",
         });
 
-        const authPayload = {
+        saveAuth({
           access: data.access,
           refresh: data.refresh,
-          user: data.user || {
-            id: tgUser.id,
-            username: tgUser.username || `tg_${tgUser.id}`,
-            first_name: tgUser.first_name || "",
-            telegram_id: tgUser.id,
-          },
-        };
+          user: data.user || mapTelegramUser(resolved),
+        });
 
-        saveAuth(authPayload);
         if (!cancelled) {
-          setAuth(authPayload);
-          setGateMessage("");
+          setUser(data.user || mapTelegramUser(resolved));
         }
       } catch (err) {
-        console.error("[AI Student PRO] Bootstrap failed:", err);
-        if (!cancelled) {
-          setGateMessage(
-            parseApiError(err, "telegram") ||
-              "Не удалось авторизоваться. Перезапустите мини-приложение через бота."
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        console.error("[AI Student PRO] Telegram auth:", err);
       }
     }
 
@@ -82,45 +75,18 @@ export default function App() {
 
   const handleLogout = () => {
     clearAuth();
-    setAuth(null);
-    setLoading(true);
-    setGateMessage("");
     window.location.reload();
   };
 
-  if (auth?.access) {
-    return <ChatApp user={auth.user} onLogout={handleLogout} />;
+  const telegramUser = tgUser ?? getTelegramUserFromWindow();
+
+  if (telegramUser?.id) {
+    return <ChatApp user={user ?? mapTelegramUser(telegramUser)} onLogout={handleLogout} />;
   }
 
-  if (loading) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0e0e11]">
-        <p className="text-sm text-gray-400">Подключение к Telegram…</p>
-      </div>
-    );
+  if (!scanDone) {
+    return <div className="fixed inset-0 bg-[#0e0e11]" aria-hidden="true" />;
   }
 
-  let telegramUser = null;
-  try {
-    telegramUser = getTelegramUserFromWindow();
-  } catch {
-    telegramUser = null;
-  }
-
-  if (!telegramUser?.id) {
-    return <TelegramGate message={gateMessage} />;
-  }
-
-  if (!auth?.access) {
-    return (
-      <TelegramGate
-        message={
-          gateMessage ||
-          "Не удалось завершить авторизацию. Перезапустите мини-приложение через бота."
-        }
-      />
-    );
-  }
-
-  return <ChatApp user={auth.user} onLogout={handleLogout} />;
+  return <TelegramGate />;
 }

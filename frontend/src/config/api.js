@@ -24,7 +24,7 @@ function resolveBackendRoot() {
 
 /**
  * Собирает абсолютный URL бэкенда. Никогда не возвращает относительный путь.
- * @param {string} endpoint — например `/api/auth/register/` или `/auth/register/`
+ * @param {string} endpoint — например `/api/telegram-auth/` или `/api/solve/`
  */
 export function getApiUrl(endpoint) {
   const apiBase = resolveBackendRoot();
