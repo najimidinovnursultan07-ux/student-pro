@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -25,6 +27,26 @@ SYSTEM_PROMPT = (
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 IMAGE_ONLY_PROMPT = "Реши учебную задачу с прикреплённого изображения пошагово и понятно на русском языке."
 
+MAX_GEMINI_RETRIES = 3
+_genai_configured = False
+
+
+def _gemini_api_key() -> str:
+    return (os.getenv("GEMINI_API_KEY") or getattr(settings, "GEMINI_API_KEY", "") or "").strip()
+
+
+def get_ai_client() -> None:
+    """Безопасная однократная инициализация Gemini SDK."""
+    global _genai_configured
+
+    api_key = _gemini_api_key()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not configured")
+
+    if not _genai_configured:
+        genai.configure(api_key=api_key)
+        _genai_configured = True
+
 
 def _is_model_unavailable(exc: Exception) -> bool:
     message = str(exc).lower()
@@ -41,7 +63,28 @@ def _is_quota_error(exc: Exception) -> bool:
     return "429" in str(exc) or "quota" in message or "resourceexhausted" in type(exc).__name__.lower()
 
 
-def format_api_error(exc: Exception, tried_models: list[str] | None = None) -> str:
+def _is_retryable_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if _is_quota_error(exc):
+        return True
+    if isinstance(exc, ValueError) and "пустой" in message:
+        return True
+    retry_markers = (
+        "503",
+        "500",
+        "overloaded",
+        "overload",
+        "deadline",
+        "timeout",
+        "temporarily",
+        "unavailable",
+        "internal error",
+        "try again",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+def format_api_error(exc: Exception) -> str:
     message = str(exc)
     lowered = message.lower()
 
@@ -53,15 +96,18 @@ def format_api_error(exc: Exception, tried_models: list[str] | None = None) -> s
         return "Превышен лимит запросов. Подождите минуту и попробуйте снова."
 
     if "api key" in lowered or "api_key_invalid" in lowered or "permission denied" in lowered:
-        return "Сервис временно недоступен. Обратитесь к администратору."
+        return "Сервис временно недоступен. Проверьте GEMINI_API_KEY на сервере."
 
     if _is_model_unavailable(exc):
         return "Модель ИИ временно недоступна. Попробуйте позже."
 
+    if "пустой ответ" in lowered:
+        return "ИИ не вернул ответ. Попробуйте отправить сообщение ещё раз."
+
     if len(message) > 280:
         return message[:280].rstrip() + "…"
 
-    return message
+    return message or "Не удалось получить ответ."
 
 
 def models_to_try(has_image: bool) -> list[str]:
@@ -74,11 +120,29 @@ def models_to_try(has_image: bool) -> list[str]:
     return ordered
 
 
-def get_ai_client() -> None:
-    api_key = settings.GEMINI_API_KEY
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY is not configured")
-    genai.configure(api_key=api_key)
+def extract_response_text(response) -> str:
+    """Извлекает текст из ответа Gemini, включая fallback по candidates."""
+    if response is None:
+        return ""
+
+    try:
+        text = response.text
+        if text and text.strip():
+            return text.strip()
+    except (ValueError, AttributeError):
+        pass
+
+    chunks: list[str] = []
+    for candidate in getattr(response, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        if not content:
+            continue
+        for part in getattr(content, "parts", None) or []:
+            part_text = getattr(part, "text", None)
+            if part_text and str(part_text).strip():
+                chunks.append(str(part_text).strip())
+
+    return "\n".join(chunks).strip()
 
 
 def save_uploaded_image(uploaded_file: UploadedFile) -> str:
@@ -111,6 +175,18 @@ def load_image_from_upload(uploaded_file: UploadedFile) -> Image.Image:
         uploaded_file.seek(0)
 
 
+def _call_gemini_model(model_name: str, content_parts: list) -> str:
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=SYSTEM_PROMPT,
+    )
+    response = model.generate_content(content_parts)
+    answer = extract_response_text(response)
+    if not answer:
+        raise ValueError("Gemini вернул пустой ответ (возможна перегрузка сервиса).")
+    return answer
+
+
 def generate_answer(task: str, image: Image.Image | None = None) -> str:
     get_ai_client()
     tried_models = models_to_try(has_image=image is not None)
@@ -125,25 +201,45 @@ def generate_answer(task: str, image: Image.Image | None = None) -> str:
         content_parts.append(image)
 
     for model_name in tried_models:
-        try:
-            logger.info("Trying model: %s (image=%s)", model_name, image is not None)
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=SYSTEM_PROMPT,
-            )
-            response = model.generate_content(content_parts)
-            logger.info("Model succeeded: %s", model_name)
-            return response.text or ""
-        except Exception as exc:
-            last_error = exc
-            if _is_quota_error(exc) or _is_model_unavailable(exc):
-                logger.warning("Model %s failed: %s", model_name, exc)
-                continue
-            raise
+        for attempt in range(1, MAX_GEMINI_RETRIES + 1):
+            try:
+                logger.info(
+                    "Gemini request: model=%s attempt=%s/%s image=%s",
+                    model_name,
+                    attempt,
+                    MAX_GEMINI_RETRIES,
+                    image is not None,
+                )
+                answer = _call_gemini_model(model_name, content_parts)
+                logger.info("Gemini success: model=%s chars=%s", model_name, len(answer))
+                return answer
+            except Exception as exc:
+                last_error = exc
+                print(f"Gemini Error: {exc}")
+                logger.warning(
+                    "Gemini failed: model=%s attempt=%s/%s error=%s",
+                    model_name,
+                    attempt,
+                    MAX_GEMINI_RETRIES,
+                    exc,
+                )
+
+                if _is_model_unavailable(exc):
+                    break
+
+                if attempt < MAX_GEMINI_RETRIES and _is_retryable_error(exc):
+                    delay = min(2**attempt, 12)
+                    time.sleep(delay)
+                    continue
+
+                if _is_quota_error(exc) or _is_retryable_error(exc):
+                    break
+
+                raise
 
     if last_error:
         raise last_error
-    raise RuntimeError("Не удалось получить ответ.")
+    raise RuntimeError("Не удалось получить ответ от Gemini после всех попыток.")
 
 
 def parse_request_payload(request) -> tuple[str, UploadedFile | None, str]:
@@ -184,9 +280,9 @@ def solve_task(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not settings.GEMINI_API_KEY:
+    if not _gemini_api_key():
         return Response(
-            {"error": "Сервис временно недоступен."},
+            {"error": "Сервис временно недоступен. Не задан GEMINI_API_KEY."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -213,8 +309,9 @@ def solve_task(request):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as exc:
+        print(f"Gemini Error: {exc}")
         logger.exception("AI API error")
         return Response(
-            {"error": format_api_error(exc, tried_models=models_to_try(pil_image is not None))},
+            {"error": format_api_error(exc)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )

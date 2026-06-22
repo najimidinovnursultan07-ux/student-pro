@@ -3,7 +3,7 @@ packaging==26.2
 django
 python-dotenv
 django-cors-headers
-google-generativeai
+google-generativeai>=0.8.3,<1.0
 Pillow>=10.0,<12.0
 djangorestframework>=3.15,<4.0
 djangorestframework-simplejwt>=5.3,<6.0
