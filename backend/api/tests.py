@@ -20,6 +20,8 @@ class TelegramAuthTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertIn("access", response.data)
         self.assertTrue(TelegramProfile.objects.filter(telegram_id=123456789).exists())
+        user = User.objects.get(username="tg_123456789")
+        self.assertEqual(user.first_name, "Иван")
 
     def test_existing_user_returns_jwt(self):
         user = User.objects.create_user(username="tg_123")
@@ -40,6 +42,20 @@ class TelegramAuthTests(APITestCase):
         self.assertIn("access", response.data)
         profile = TelegramProfile.objects.get(telegram_id=123)
         self.assertEqual(profile.first_name, "New")
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, "New")
+
+    def test_creates_user_when_profile_missing(self):
+        User.objects.create_user(username="tg_999", first_name="Legacy")
+
+        response = self.client.post(
+            "/api/telegram-auth/",
+            {"telegram_id": 999, "first_name": "Новый"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertTrue(TelegramProfile.objects.filter(telegram_id=999).exists())
 
 
 class SolveEndpointTests(APITestCase):

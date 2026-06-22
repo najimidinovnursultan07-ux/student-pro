@@ -19,41 +19,116 @@ USERNAME_PATTERN = re.compile(r"^[\w.@+-]+$")
 def _issue_tokens(user: User) -> dict:
     refresh = RefreshToken.for_user(user)
     profile = getattr(user, "telegram_profile", None)
+    display_name = ""
+    if profile and profile.first_name:
+        display_name = profile.first_name
+    elif user.first_name:
+        display_name = user.first_name
+
     return {
         "access": str(refresh.access_token),
         "refresh": str(refresh),
         "user": {
             "id": user.id,
             "username": user.username,
-            "first_name": profile.first_name if profile else "",
+            "first_name": display_name,
             "telegram_id": profile.telegram_id if profile else None,
         },
     }
 
 
-def _build_username(telegram_username: str, telegram_id: int) -> str:
-    base = (telegram_username or f"tguser_{telegram_id}").strip()
-    base = re.sub(r"[^\w.@+-]", "_", base)[:30]
-    if len(base) < 3:
-        base = f"tg_{telegram_id}"
-    candidate = base
-    suffix = 1
-    while User.objects.filter(username=candidate).exists():
-        candidate = f"{base}_{suffix}"[:150]
-        suffix += 1
-    return candidate
-
-
-def _sync_profile(profile: TelegramProfile, *, telegram_username: str, first_name: str, last_name: str) -> None:
+def _sync_profile(
+    profile: TelegramProfile,
+    *,
+    telegram_username: str,
+    first_name: str,
+    last_name: str,
+) -> None:
     profile.telegram_username = telegram_username
     profile.first_name = first_name
     profile.last_name = last_name
     profile.save(update_fields=["telegram_username", "first_name", "last_name"])
 
 
+def _get_or_create_telegram_user(
+    telegram_id: int,
+    telegram_username: str,
+    first_name: str,
+    last_name: str,
+) -> tuple[User, bool]:
+    django_username = f"tg_{telegram_id}"
+    user_created = False
+
+    with transaction.atomic():
+        profile = (
+            TelegramProfile.objects.select_related("user")
+            .filter(telegram_id=telegram_id)
+            .first()
+        )
+
+        if profile:
+            user = profile.user
+            _sync_profile(
+                profile,
+                telegram_username=telegram_username,
+                first_name=first_name,
+                last_name=last_name,
+            )
+            if first_name:
+                user.first_name = first_name[:150]
+                user.save(update_fields=["first_name"])
+            return user, False
+
+        user, user_created = User.objects.get_or_create(
+            username=django_username,
+            defaults={
+                "first_name": first_name[:150],
+                "is_active": True,
+            },
+        )
+
+        if user_created:
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+            print(f"Создан новый пользователь через Telegram: {django_username}")
+            logger.info("Created new Telegram user: %s", django_username)
+        else:
+            if first_name:
+                user.first_name = first_name[:150]
+                user.save(update_fields=["first_name"])
+            if user.has_usable_password():
+                user.set_unusable_password()
+                user.save(update_fields=["password"])
+
+        profile, profile_created = TelegramProfile.objects.get_or_create(
+            telegram_id=telegram_id,
+            defaults={
+                "user": user,
+                "telegram_username": telegram_username,
+                "first_name": first_name,
+                "last_name": last_name,
+            },
+        )
+
+        if not profile_created:
+            _sync_profile(
+                profile,
+                telegram_username=telegram_username,
+                first_name=first_name,
+                last_name=last_name,
+            )
+            if profile.user_id != user.id:
+                profile.user = user
+                profile.save(update_fields=["user"])
+
+    return user, user_created
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def telegram_auth(request):
+    telegram_id: int | None = None
+
     try:
         raw_id = request.data.get("id") or request.data.get("telegram_id")
         if raw_id is None:
@@ -74,41 +149,28 @@ def telegram_auth(request):
         first_name = (request.data.get("first_name") or "").strip()
         last_name = (request.data.get("last_name") or "").strip()
 
-        profile = (
-            TelegramProfile.objects.select_related("user")
-            .filter(telegram_id=telegram_id)
-            .first()
+        user, created = _get_or_create_telegram_user(
+            telegram_id=telegram_id,
+            telegram_username=telegram_username,
+            first_name=first_name,
+            last_name=last_name,
         )
 
-        if profile:
-            _sync_profile(
-                profile,
-                telegram_username=telegram_username,
-                first_name=first_name,
-                last_name=last_name,
-            )
-            return Response(_issue_tokens(profile.user), status=status.HTTP_200_OK)
-
-        with transaction.atomic():
-            django_username = _build_username(telegram_username, telegram_id)
-            user = User.objects.create_user(username=django_username)
-            user.set_unusable_password()
-            user.save(update_fields=["password"])
-
-            profile = TelegramProfile.objects.create(
-                user=user,
-                telegram_id=telegram_id,
-                telegram_username=telegram_username,
-                first_name=first_name,
-                last_name=last_name,
-            )
-
-        return Response(_issue_tokens(profile.user), status=status.HTTP_201_CREATED)
+        return Response(
+            _issue_tokens(user),
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     except IntegrityError:
-        profile = TelegramProfile.objects.select_related("user").filter(telegram_id=telegram_id).first()
-        if profile:
-            return Response(_issue_tokens(profile.user), status=status.HTTP_200_OK)
+        if telegram_id is not None:
+            profile = (
+                TelegramProfile.objects.select_related("user")
+                .filter(telegram_id=telegram_id)
+                .first()
+            )
+            if profile:
+                return Response(_issue_tokens(profile.user), status=status.HTTP_200_OK)
+
         return Response(
             {"error": "Не удалось создать пользователя Telegram."},
             status=status.HTTP_400_BAD_REQUEST,

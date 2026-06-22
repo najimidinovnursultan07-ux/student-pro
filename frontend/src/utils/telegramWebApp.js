@@ -51,6 +51,15 @@ export function initTelegramWebApp(webApp) {
   }
 }
 
+export function getTelegramUserFromWindow() {
+  try {
+    return window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
+  } catch (err) {
+    console.warn("[Telegram] initDataUnsafe read failed:", err);
+    return null;
+  }
+}
+
 export function getTelegramUserSafe(webApp) {
   try {
     return webApp?.initDataUnsafe?.user ?? null;
@@ -73,10 +82,3 @@ export async function getTelegramUserWithRetry(webApp) {
   }
   return null;
 }
-
-export const GUEST_USER = {
-  id: "guest",
-  username: "guest",
-  first_name: "Гость",
-  isGuest: true,
-};

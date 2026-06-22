@@ -20,7 +20,7 @@ function revokePreviewUrl(url) {
   }
 }
 
-export default function ChatApp({ user, onLogout, isGuest = false, guestNotice = "" }) {
+export default function ChatApp({ user, onLogout }) {
   const [history, setHistory] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [task, setTask] = useState("");
@@ -144,14 +144,6 @@ export default function ChatApp({ user, onLogout, isGuest = false, guestNotice =
     if ((!trimmed && !attachedImage) || loading) return;
     if (activeEntry && isChatLimitReached(activeEntry)) return;
 
-    if (isGuest) {
-      setError(
-        guestNotice ||
-          "Гостевой режим: отправка задач недоступна без авторизации через Telegram."
-      );
-      return;
-    }
-
     const localPreview = imagePreview;
     const submittedTask = trimmed;
     const submittedImage = attachedImage;
@@ -242,14 +234,7 @@ export default function ChatApp({ user, onLogout, isGuest = false, guestNotice =
   }
 
   return (
-    <div className="flex h-full min-h-screen flex-col overflow-hidden bg-[#131314]">
-      {isGuest && guestNotice && (
-        <div className="shrink-0 border-b border-amber-500/30 bg-amber-950/90 px-4 py-2 text-center text-xs leading-relaxed text-amber-100">
-          {guestNotice}
-        </div>
-      )}
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+    <div className="flex h-full min-h-screen overflow-hidden bg-[#131314]">
       <Sidebar
         history={history}
         activeId={activeId}
@@ -279,7 +264,6 @@ export default function ChatApp({ user, onLogout, isGuest = false, guestNotice =
         messageLimitReached={messageLimitReached}
         onOpenSidebar={() => setSidebarOpen(true)}
       />
-      </div>
     </div>
   );
 }
