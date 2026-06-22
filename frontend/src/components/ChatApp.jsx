@@ -32,7 +32,7 @@ export default function ChatApp({ user, onLogout }) {
   const [isNewChat, setIsNewChat] = useState(true);
   const [hydrated, setHydrated] = useState(false);
 
-  const userName = user?.username || "Вы";
+  const userName = user?.first_name || user?.username || "Вы";
 
   const activeEntry = useMemo(
     () => history.find((item) => item.id === activeId) ?? null,

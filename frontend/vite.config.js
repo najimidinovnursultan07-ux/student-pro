@@ -3,7 +3,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+// VITE_API_URL подставляется при сборке (Vercel → Redeploy после смены env).
+// Прокси не используем — в продакшене запросы идут на полный URL бэкенда через getApiUrl().
 export default defineConfig({
+  envPrefix: "VITE_",
   plugins: [
     react(),
     tailwindcss(),

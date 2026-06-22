@@ -7,5 +7,6 @@ urlpatterns = [
     path("auth/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/register/", auth_views.register, name="register"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("telegram-auth/", auth_views.telegram_auth, name="telegram_auth"),
     path("solve/", views.solve_task, name="solve"),
 ]
