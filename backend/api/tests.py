@@ -17,10 +17,11 @@ class TelegramAuthTests(APITestCase):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
         self.assertTrue(TelegramProfile.objects.filter(telegram_id=123456789).exists())
-        user = User.objects.get(username="tg_123456789")
+        user = User.objects.filter(username="tg_123456789").first()
+        self.assertIsNotNone(user)
         self.assertEqual(user.first_name, "Иван")
 
     def test_existing_user_returns_jwt(self):

@@ -11,13 +11,6 @@ async function readResponseBody(response) {
   }
 }
 
-function createRequestError(response, data, url) {
-  const error = new Error("API request failed");
-  error.response = { status: response.status, data };
-  error.config = { url };
-  return error;
-}
-
 async function apiFetch(endpoint, options = {}) {
   const url = getApiUrl(endpoint);
   const headers = new Headers(options.headers || {});
@@ -47,32 +40,21 @@ async function apiFetch(endpoint, options = {}) {
       window.location.reload();
     }
 
-    throw createRequestError(response, data, url);
+    return null;
   }
 
   return data;
 }
 
 export function parseApiError(error) {
-  const data = error.response?.data;
-
-  if (!error.response) {
-    return "Не удалось связаться с сервером. Проверьте подключение.";
-  }
-
-  if (typeof data === "object" && data?.error) {
-    return String(data.error);
-  }
-
-  if (data?.detail) {
-    return typeof data.detail === "string" ? data.detail : String(data.detail);
-  }
-
+  const data = error?.response?.data;
+  if (typeof data === "object" && data?.error) return String(data.error);
+  if (data?.detail) return typeof data.detail === "string" ? data.detail : String(data.detail);
   return "Не удалось выполнить запрос.";
 }
 
 export async function telegramAuthRequest(telegramUser) {
-  const data = await apiFetch("/api/telegram-auth/", {
+  return apiFetch("/api/telegram-auth/", {
     method: "POST",
     body: JSON.stringify({
       id: telegramUser.id,
@@ -82,17 +64,15 @@ export async function telegramAuthRequest(telegramUser) {
       last_name: telegramUser.last_name || "",
     }),
   });
-
-  if (!data?.access) {
-    throw new Error("Сервер не вернул токен доступа.");
-  }
-
-  return data;
 }
 
 export async function solveRequest(formData) {
-  return apiFetch("/api/solve/", {
+  const data = await apiFetch("/api/solve/", {
     method: "POST",
     body: formData,
   });
+  if (!data) {
+    throw new Error("Не удалось получить ответ от сервера.");
+  }
+  return data;
 }

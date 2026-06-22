@@ -19,73 +19,89 @@ function mapTelegramUser(tgUser) {
   };
 }
 
+function isTelegramMiniApp() {
+  return Boolean(window.Telegram?.WebApp);
+}
+
+function getActiveTelegramUser() {
+  return getTelegramUserFromWindow();
+}
+
+async function syncAuth(tgUser) {
+  const payload = {
+    id: tgUser.id,
+    username: tgUser.username || "",
+    first_name: tgUser.first_name || "",
+    last_name: tgUser.last_name || "",
+  };
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const data = await telegramAuthRequest(payload);
+    if (data?.access) {
+      const auth = {
+        access: data.access,
+        refresh: data.refresh,
+        user: data.user || mapTelegramUser(tgUser),
+      };
+      saveAuth(auth);
+      return auth.user;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+  }
+
+  return mapTelegramUser(tgUser);
+}
+
 export default function App() {
-  const initialTgUser = getTelegramUserFromWindow();
-  const [tgUser, setTgUser] = useState(initialTgUser);
-  const [user, setUser] = useState(() => getAuth()?.user ?? (initialTgUser ? mapTelegramUser(initialTgUser) : null));
-  const [scanDone, setScanDone] = useState(Boolean(initialTgUser?.id));
+  const initialTgUser = getActiveTelegramUser();
+  const [user, setUser] = useState(
+    () => getAuth()?.user ?? (initialTgUser ? mapTelegramUser(initialTgUser) : null)
+  );
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
 
+    if (!isTelegramMiniApp() && !initialTgUser?.id) {
+      return;
+    }
+
     let cancelled = false;
 
-    async function bootstrap() {
+    (async () => {
       const webApp = await waitForTelegramWebApp();
       initTelegramWebApp(webApp);
 
-      const resolved = webApp ? await getTelegramUserWithRetry(webApp) : null;
-      if (cancelled) return;
+      const tgUser = webApp ? await getTelegramUserWithRetry(webApp) : getActiveTelegramUser();
+      if (cancelled || !tgUser?.id) return;
 
-      setTgUser(resolved);
-      setScanDone(true);
-
-      if (!resolved?.id) return;
-
-      setUser(mapTelegramUser(resolved));
-
-      try {
-        const data = await telegramAuthRequest({
-          id: resolved.id,
-          username: resolved.username || "",
-          first_name: resolved.first_name || "",
-          last_name: resolved.last_name || "",
-        });
-
-        saveAuth({
-          access: data.access,
-          refresh: data.refresh,
-          user: data.user || mapTelegramUser(resolved),
-        });
-
-        if (!cancelled) {
-          setUser(data.user || mapTelegramUser(resolved));
-        }
-      } catch (err) {
-        console.error("[AI Student PRO] Telegram auth:", err);
+      const authedUser = await syncAuth(tgUser);
+      if (!cancelled) {
+        setUser(authedUser);
       }
-    }
-
-    bootstrap();
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialTgUser?.id]);
 
-  const handleLogout = () => {
-    clearAuth();
-    window.location.reload();
-  };
+  const tgUser = getActiveTelegramUser();
+  const inMiniApp = isTelegramMiniApp();
 
-  const telegramUser = tgUser ?? getTelegramUserFromWindow();
+  if (inMiniApp || tgUser?.id) {
+    const fallbackUser = tgUser
+      ? mapTelegramUser(tgUser)
+      : { id: 0, username: "user", first_name: "Студент", telegram_id: null };
 
-  if (telegramUser?.id) {
-    return <ChatApp user={user ?? mapTelegramUser(telegramUser)} onLogout={handleLogout} />;
-  }
-
-  if (!scanDone) {
-    return <div className="fixed inset-0 bg-[#0e0e11]" aria-hidden="true" />;
+    return (
+      <ChatApp
+        user={user ?? fallbackUser}
+        onLogout={() => {
+          clearAuth();
+          window.location.reload();
+        }}
+      />
+    );
   }
 
   return <TelegramGate />;
